@@ -44,11 +44,12 @@ table{margin:6px auto;font-size:12px;border-collapse:collapse}td,th{padding:2px 
 const N=20, GAP=10;
 // e: 1枚目/2枚目/3枚目の効果。'W'=自動勝利 'L'=自動敗北。3枚目を取ると枚数は0に戻る
 const TYPES=[
- {n:'エージェントX',e:[0,0,'W']},
- {n:'ギャンブラー',e:[-1,5,-1]},
- {n:'ステップ',e:[1,2,3]},
- {n:'ハイリスク',e:[3,5,'L']},
- {n:'ペナルティ',e:[-1,-2,-3]}];
+ {n:'暗号解読者',e:[0,0,'W']},
+ {n:'二重スパイ',e:[-1,6,-1]},
+ {n:'隠密',e:[1,2,3]},
+ {n:'命知らず',e:[2,3,'L']},
+ {n:'暴れ者',e:[-1,-1,-2]},
+ {n:'見張り役',e:[0,2,6]}];
 const fmt=x=>x==='W'?'勝利':x==='L'?'敗北':x>0?'+'+x:x===0?'±0':String(x);
 const val=x=>x==='W'?12:x==='L'?-12:x;
 const nm=w=>w==='P'?'あなた':'CPU';
@@ -59,7 +60,7 @@ const nextEff=(w,t)=>TYPES[t].e[cnt[w][t]];
 function draw(w){if(!deck.length){deck=shuffle(disc);disc=[]}hand[w].push(deck.pop())}
 function init(){
   a=0;b=0;disc=[];deck=[];TYPES.forEach((_,t)=>{for(let i=0;i<6;i++)deck.push(t)});shuffle(deck);
-  hand={P:[],C:[]};cnt={P:[0,0,0,0,0],C:[0,0,0,0,0]};
+  hand={P:[],C:[]};cnt={P:TYPES.map(()=>0),C:TYPES.map(()=>0)};
   for(let i=0;i<4;i++){draw('P');draw('C')}
   active=Math.random()<.5?'P':'C';over=null;log=[];startTurn();
 }
