@@ -24,6 +24,15 @@ h1{letter-spacing:.25em;font-size:20px;margin:6px 0}
 .card.sm{width:36px;min-height:50px;cursor:default}
 .card.up::after,.card.down::after{content:"表";position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:11px;background:var(--acc);color:#000;padding:0 5px;border-radius:6px}
 .card.down::after{content:"裏";background:var(--fg);color:var(--bg)}
+#table{min-height:150px;padding:40px 0;align-items:center}
+.card{transition:transform .6s,box-shadow .3s}
+.card[data-tag]::before{content:attr(data-tag);position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);white-space:nowrap;font-size:11px;font-weight:700;color:#fff;padding:1px 6px;border-radius:6px}
+.card.own-P{border-color:var(--me);box-shadow:0 0 10px var(--me);transform:translateY(34px)}
+.card.own-C{border-color:var(--cpu);box-shadow:0 0 10px var(--cpu);transform:translateY(-34px)}
+.card.own-P::before{background:var(--me)}.card.own-C::before{background:var(--cpu)}
+.card.glow{outline:3px solid var(--acc)}
+@keyframes hop{0%{transform:translateY(0) scale(1)}40%{transform:translateY(-10px) scale(1.25)}100%{transform:translateY(0) scale(1)}}
+.pc.hop{animation:hop .25s}
 button.go{padding:10px 24px;font-size:16px;border:0;border-radius:8px;background:var(--acc);color:#000;font-weight:700;cursor:pointer}
 button.go:disabled{opacity:.4}
 #log{font-size:12px;text-align:left;max-height:110px;overflow:auto;border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
@@ -53,13 +62,14 @@ const TYPES=[
 const fmt=x=>x==='W'?'勝利':x==='L'?'敗北':x>0?'+'+x:x===0?'±0':String(x);
 const val=x=>x==='W'?12:x==='L'?-12:x;
 const nm=w=>w==='P'?'あなた':'CPU';
-let a,b,deck,disc,hand,cnt,active,phase,sel,tbl,over,log;
+let a,b,dispA,dispB,deck,disc,hand,cnt,active,phase,sel,tbl,over,log;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const $=id=>document.getElementById(id);
 const shuffle=x=>{for(let i=x.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[x[i],x[j]]=[x[j],x[i]]}return x};
 const nextEff=(w,t)=>TYPES[t].e[cnt[w][t]];
 function draw(w){if(!deck.length){deck=shuffle(disc);disc=[]}hand[w].push(deck.pop())}
 function init(){
-  a=0;b=0;disc=[];deck=[];TYPES.forEach((_,t)=>{for(let i=0;i<6;i++)deck.push(t)});shuffle(deck);
+  a=0;b=0;dispA=0;dispB=0;disc=[];deck=[];TYPES.forEach((_,t)=>{for(let i=0;i<6;i++)deck.push(t)});shuffle(deck);
   hand={P:[],C:[]};cnt={P:TYPES.map(()=>0),C:TYPES.map(()=>0)};
   for(let i=0;i<4;i++){draw('P');draw('C')}
   active=Math.random()<.5?'P':'C';over=null;log=[];startTurn();
@@ -91,17 +101,40 @@ function take(w,t){
   if(typeof x==='number'){if(w==='P')a+=x;else b+=x}
   return x;
 }
-function resolve(chooser,chosenIsUp){
+async function resolve(chooser,chosenIsUp){
   const act=chooser==='P'?'C':'P',t=tbl;
+  phase='anim';dispA=a;dispB=b;
   const ct=chosenIsUp?t.up:t.down, ot=chosenIsUp?t.down:t.up;
   const cx=take(chooser,ct), ox=take(act,ot);
   let pw=false,cw=false;
   const flag=(w,x)=>{if(x==='W'){w==='P'?pw=true:cw=true}if(x==='L'){w==='P'?cw=true:pw=true}};
   flag(chooser,cx);flag(act,ox);
   if(a-b>=GAP)pw=true;if(b-a>=GAP)cw=true;
-  over=pw&&cw?'D':pw?'P':cw?'C':null;
-  log.unshift(`${nm(act)}:表「${TYPES[t.up].n}」/裏「${TYPES[t.down].n}」→ ${nm(chooser)}が${chosenIsUp?'表':'裏'}を選択。${nm(chooser)}「${TYPES[ct].n}」${fmt(cx)}、${nm(act)}「${TYPES[ot].n}」${fmt(ox)}`);
-  t.revealed=true;phase='result';render();
+  const res=pw&&cw?'D':pw?'P':cw?'C':null;
+  const logLine=(`${nm(act)}:表「${TYPES[t.up].n}」/裏「${TYPES[t.down].n}」→ ${nm(chooser)}が${chosenIsUp?'表':'裏'}を選択。${nm(chooser)}「${TYPES[ct].n}」${fmt(cx)}、${nm(act)}「${TYPES[ot].n}」${fmt(ox)}`);
+  const ui=chosenIsUp?0:1,oi=1-ui;
+  t.own=[null,null];t.fx=[null,null];
+  t.own[ui]=chooser;t.fx[ui]=cx;t.own[oi]=act;t.fx[oi]=ox;
+  t.revealed=true;render();
+  await sleep(900);
+  const els=[...$('table').children];
+  els.forEach((e,i)=>{e.dataset.tag=`${nm(t.own[i])} ${fmt(t.fx[i])}`;e.classList.add('own-'+t.own[i])});
+  t.assigned=true;
+  await sleep(900);
+  for(const i of [ui,oi]){
+    const x=t.fx[i],w=t.own[i];
+    els[i].classList.add('glow');
+    if(typeof x==='number'){
+      const d=Math.sign(x);
+      for(let k=0;k<Math.abs(x);k++){
+        if(w==='P')dispA+=d;else dispB+=d;
+        drawRing(w);updateInfo();await sleep(300);
+      }
+    }else await sleep(800);
+    els[i].classList.remove('glow');
+    await sleep(200);
+  }
+  over=res;log.unshift(logLine);phase='result';render();
 }
 function next(){
   const act=active;
@@ -124,15 +157,20 @@ function mk(t,cls,fn){
     e.innerHTML=`<div class="nm">${d.n}</div><div class="fx">${d.e.map((x,i)=>`<span class="${i===cnt.P[t]?'cur':''}">${fmt(x)}</span>`).join('')}</div><div class="op">CPU次:${fmt(nextEff('C',t))}</div>`}
   if(fn)e.onclick=fn;return e;
 }
-function render(){
+function drawRing(mover){
   const R=$('ring');R.innerHTML='';
   for(let i=0;i<N;i++){const g=i/N*2*Math.PI-Math.PI/2,c=document.createElement('div');c.className='cell';c.style.left=130+110*Math.cos(g)+'px';c.style.top=130+110*Math.sin(g)+'px';R.appendChild(c)}
-  const place=(pos,col,txt)=>{const g=(((pos%N)+N)%N)/N*2*Math.PI-Math.PI/2,e=document.createElement('div');e.className='pc';e.style.background=col;e.textContent=txt;e.style.left=130+110*Math.cos(g)+'px';e.style.top=130+110*Math.sin(g)+'px';R.appendChild(e)};
-  place(a,'var(--me)','YOU');place(GAP+b,'var(--cpu)','CPU');
-  const toWin=GAP-(a-b),toLose=GAP-(b-a);
+  const place=(pos,col,txt,w)=>{const g=(((pos%N)+N)%N)/N*2*Math.PI-Math.PI/2,e=document.createElement('div');e.className='pc'+(mover&&mover===w?' hop':'');e.style.background=col;e.textContent=txt;e.style.left=130+110*Math.cos(g)+'px';e.style.top=130+110*Math.sin(g)+'px';R.appendChild(e)};
+  place(dispA,'var(--me)','YOU','P');place(GAP+dispB,'var(--cpu)','CPU','C');
+}
+function updateInfo(){
+  const toWin=GAP-(dispA-dispB),toLose=GAP-(dispB-dispA);
   $('info').innerHTML=over?`<b>${over==='D'?'引き分け':over==='P'?'🎉 あなたの勝ち!':'💀 CPUの勝ち…'}</b>`:
     `あなた→CPUまで あと<b>${toWin}</b>マス ／ CPU→あなたまで あと<b>${toLose}</b>マス<br>`+
     (phase==='play'?'あなたの手番:カードを2枚選ぶ(1枚目=表、2枚目=裏)':phase==='choose'?'CPUの手番:どちらを自分に適用する?':'');
+}
+function render(){
+  drawRing();updateInfo();
   $('chand').innerHTML='';hand.C.forEach(()=>$('chand').appendChild(mk(null,'back sm')));
   const ph=$('phand');ph.innerHTML='';
   hand.P.forEach((t,i)=>{const k=sel.indexOf(i);ph.appendChild(mk(t,k===0?'up':k===1?'down':'',()=>click(i)))});
@@ -140,12 +178,14 @@ function render(){
   if(tbl){
     const ce=phase==='choose',rv=tbl.revealed;
     T.appendChild(mk(tbl.up,'up',ce?()=>resolve('P',true):null));
-    T.appendChild(rv||false?mk(tbl.down,'down'):mk(null,'down back',ce?()=>resolve('P',false):null));
+    T.appendChild(rv?mk(tbl.down,'down'):mk(null,'down back',ce?()=>resolve('P',false):null));
+    if(tbl.assigned)[...T.children].forEach((e,i)=>{e.dataset.tag=`${nm(tbl.own[i])} ${fmt(tbl.fx[i])}`;e.classList.add('own-'+tbl.own[i])});
     $('tlabel').textContent=ce?'タップで「自分に適用」するカードを選ぶ(もう片方はCPUが取る)':'場';
   }else $('tlabel').textContent='場';
   const bt=$('btn');bt.disabled=false;
   if(over)bt.textContent='もう一度遊ぶ';
   else if(phase==='play'){bt.textContent='この2枚を出す';bt.disabled=sel.length!==2}
+  else if(phase==='anim'){bt.textContent='…';bt.disabled=true}
   else if(phase==='result')bt.textContent='次のターンへ';
   else{bt.textContent='選んでください';bt.disabled=true}
   $('col').innerHTML='<tr><th>カード</th><th>あなた</th><th>CPU</th></tr>'+TYPES.map((d,t)=>`<tr><td>${d.n}</td><td>${cnt.P[t]}/3</td><td>${cnt.C[t]}/3</td></tr>`).join('');
