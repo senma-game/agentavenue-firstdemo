@@ -37,17 +37,39 @@ button.go{padding:10px 24px;font-size:16px;border:0;border-radius:8px;background
 button.go:disabled{opacity:.4}
 #log{font-size:12px;text-align:left;max-height:110px;overflow:auto;border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
 .lbl{font-size:12px;opacity:.7}
+section[hidden]{display:none}
+#home h1{font-size:30px;margin:40px 0 8px}#home p,#lobby p{font-size:13px;opacity:.8;line-height:1.7}
+.menu{display:flex;flex-direction:column;gap:14px;max-width:280px;margin:30px auto}
+.menu button,#lobby button{padding:14px;font-size:17px;border:0;border-radius:10px;background:var(--acc);color:#000;font-weight:700;cursor:pointer;font-family:inherit}
+.menu button.sub{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+#code{padding:12px;font-size:18px;text-align:center;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-family:inherit}
+#homebtn{font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer;font-family:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line)}
+#lstatus{min-height:24px;font-size:14px}
 table{margin:6px auto;font-size:12px;border-collapse:collapse}td,th{padding:2px 10px;border-bottom:1px solid var(--line)}
 </style></head><body><main>
+<section id="home">
 <h1>AGENT AVENUE</h1>
+<p>追いつけ、追い越せ。相手の心を読む心理戦ボードゲーム</p>
+<div class="menu"><button id="b-cpu">対CPU戦</button><button id="b-online">オンライン対戦</button></div>
+<p>2枚のカードを表と裏で出し、相手が選んだ方が相手の駒を、残りが自分の駒を動かす。<br>相手の駒に10マス近づけば勝ち。</p>
+</section>
+<section id="lobby" hidden>
+<h1>オンライン対戦</h1>
+<p>同じ部屋コードを入力した2人がマッチングします。<br>相手にも同じコードを伝えてください。</p>
+<div class="menu"><input id="code" maxlength="30" placeholder="部屋コード(英数字)" autocomplete="off"><button id="joinbtn">入室する</button><div id="lstatus"></div><button class="sub" id="lobbyback">戻る</button></div>
+</section>
+<section id="game" hidden>
+<h1>AGENT AVENUE</h1>
+<div><button id="homebtn">← ホームへ</button></div>
 <div id="ring"></div>
 <div id="info"></div>
-<div class="lbl">CPUの手札</div><div class="row" id="chand"></div>
+<div class="lbl">相手の手札</div><div class="row" id="chand"></div>
 <div class="lbl" id="tlabel">場</div><div class="row" id="table"></div>
 <div class="row"><button class="go" id="btn"></button></div>
-<div class="lbl">あなたの手札(青=あなたが次に取ると発動する効果 / 赤=CPUが次に取ると発動する効果)</div><div class="row" id="phand"></div>
+<div class="lbl">あなたの手札(青=あなたが次に取ると発動する効果 / 赤=相手が次に取ると発動する効果)</div><div class="row" id="phand"></div>
 <table id="col"></table>
 <div id="log"></div>
+</section>
 </main>
 <script>
 const N=20, GAP=10;
@@ -61,22 +83,25 @@ const TYPES=[
  {n:'見張り役',e:[0,2,6]}];
 const fmt=x=>x==='W'?'勝利':x==='L'?'敗北':x>0?'+'+x:x===0?'±0':String(x);
 const val=x=>x==='W'?12:x==='L'?-12:x;
-const nm=w=>w==='P'?'あなた':'CPU';
+const nm=w=>w==='P'?'あなた':oppName;
 let a,b,dispA,dispB,deck,disc,hand,cnt,active,phase,sel,tbl,over,log;
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let online=false,oppName='CPU',pending=null,chosen=null,oppPeer=null,gen=0,started=false,graceT=null;
+const sleep=ms=>{const g=gen;return new Promise((r,j)=>setTimeout(()=>g===gen?r():j('left'),ms))};
 const $=id=>document.getElementById(id);
 const shuffle=x=>{for(let i=x.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[x[i],x[j]]=[x[j],x[i]]}return x};
 const nextEff=(w,t)=>TYPES[t].e[cnt[w][t]];
 function draw(w){if(!deck.length){deck=shuffle(disc);disc=[]}hand[w].push(deck.pop())}
-function init(){
-  a=0;b=0;dispA=0;dispB=0;disc=[];deck=[];TYPES.forEach((_,t)=>{for(let i=0;i<6;i++)deck.push(t)});shuffle(deck);
+function init(firstMe){
+  pending=null;chosen=null;a=0;b=0;dispA=0;dispB=0;disc=[];deck=[];TYPES.forEach((_,t)=>{for(let i=0;i<6;i++)deck.push(t)});shuffle(deck);
   hand={P:[],C:[]};cnt={P:TYPES.map(()=>0),C:TYPES.map(()=>0)};
-  for(let i=0;i<4;i++){draw('P');draw('C')}
-  active=Math.random()<.5?'P':'C';over=null;log=[];startTurn();
+  for(let i=0;i<4;i++){draw('P');if(!online)draw('C')}
+  if(online)hand.C=[0,0,0,0];
+  active=online?(firstMe?'P':'C'):(Math.random()<.5?'P':'C');over=null;log=[];startTurn();
 }
 function startTurn(){
   sel=[];tbl=null;
   if(active==='P')phase='play';
+  else if(online){phase='wait';if(pending){const d=pending;pending=null;onPlay(d);return}}
   else{const [i,j]=cpuPlay();tbl={up:hand.C[i],down:hand.C[j],iu:i,id:j};phase='choose'}
   render();
 }
@@ -135,39 +160,98 @@ async function resolve(chooser,chosenIsUp){
     await sleep(200);
   }
   over=res;log.unshift(logLine);phase='result';render();
+  if(online&&!over){await sleep(1500);next()}
 }
 function next(){
   const act=active;
+  if(!online||act==='P'){
   [tbl.iu,tbl.id].sort((x,y)=>y-x).forEach(i=>disc.push(...hand[act].splice(i,1)));
   while(hand[act].length<4)draw(act);
+  }
   active=act==='P'?'C':'P';startTurn();
 }
+let rm=null,unsubs=[];
+const send=(t,d)=>{if(rm)rm.emit(t,d).catch(()=>{})};
 $('btn').onclick=()=>{
-  if(over){init();return}
+  if(over){if(online)leave();else init();return}
   if(phase==='play'&&sel.length===2){
-    tbl={up:hand.P[sel[0]],down:hand.P[sel[1]],iu:sel[0],id:sel[1]};
-    resolve('C',cpuChoose());
-  }else if(phase==='result')next();
+    tbl={up:hand.P[sel[0]],down:hand.P[sel[1]],iu:sel[0],id:sel[1],mine:true};
+    if(online){send('play',{up:tbl.up});phase='waitchoose';render()}
+    else resolve('C',cpuChoose());
+  }else if(phase==='result'&&!online)next();
+};
+function pick(isUp){
+  if(phase!=='choose')return;
+  if(online){chosen=isUp;send('choose',{isUp});phase='waitreveal';render()}
+  else resolve('P',isUp);
+}
+function onPlay(d){
+  if(phase!=='wait'){pending=d;return}
+  tbl={up:d.up,down:null};phase='choose';render();
+}
+const okT=v=>Number.isInteger(v)&&v>=0&&v<TYPES.length;
+function onMsg(topic,m){
+  if(m.isMe||m.peer!==oppPeer||!online)return;
+  const d=m.data||{};
+  if(topic==='play'&&okT(d.up))onPlay({up:d.up});
+  else if(topic==='choose'&&phase==='waitchoose'&&typeof d.isUp==='boolean'){send('reveal',{down:tbl.down});resolve('C',d.isUp)}
+  else if(topic==='reveal'&&phase==='waitreveal'&&okT(d.down)){tbl.down=d.down;resolve('P',chosen)}
+}
+// ===== ホーム/ロビー =====
+function show(id){['home','lobby','game'].forEach(s=>{$(s).hidden=s!==id})}
+function setStatus(s){$('lstatus').textContent=s}
+function leave(){
+  gen++;started=false;online=false;oppName='CPU';oppPeer=null;pending=null;clearTimeout(graceT);graceT=null;
+  unsubs.forEach(f=>{try{f()}catch(e){}});unsubs=[];
+  if(rm){rm.leave().catch(()=>{});rm=null}
+  setStatus('');$('joinbtn').disabled=false;show('home');
+}
+function onPeersChange(ch,code){
+  const ps=ch.peers,me=ps.find(p=>p.isMe&&p.sameTab);
+  if(!started){
+    if(ps.length>2){setStatus('この部屋は満員です');return}
+    const opp=ps.find(p=>!p.isMe);
+    if(ps.length<2||!me||!opp){setStatus('部屋「'+code+'」で対戦相手を待っています…');return}
+    started=true;oppPeer=opp.peer;online=true;oppName='相手';
+    show('game');init([me.peer,opp.peer].sort()[0]===me.peer);
+  }else if(ps.some(p=>p.peer===oppPeer)){clearTimeout(graceT);graceT=null}
+  else if(!graceT&&!over){graceT=setTimeout(()=>{over='L';render()},8000)}
+}
+$('b-cpu').onclick=()=>{online=false;oppName='CPU';show('game');init()};
+$('b-online').onclick=()=>show('lobby');
+$('homebtn').onclick=leave;$('lobbyback').onclick=leave;
+$('joinbtn').onclick=async()=>{
+  const code=$('code').value.trim().toLowerCase().replace(/[^a-z0-9_.-]/g,'').slice(0,30);
+  if(!code){setStatus('英数字の部屋コードを入力してください');return}
+  $('joinbtn').disabled=true;setStatus('接続中…');
+  try{
+    const api=typeof claude!=='undefined'?await claude.use('room'):null;
+    if(!api){setStatus('オンライン機能を利用できません。claude.aiにログインし、共有されたリンクから開いてください。');$('joinbtn').disabled=false;return}
+    rm=await api.join('aa-'+code);
+    const mine=rm;
+    ['play','choose','reveal'].forEach(t=>unsubs.push(mine.on(t,m=>onMsg(t,m))));
+    unsubs.push(mine.onPeers(ch=>onPeersChange(ch,code)));
+  }catch(e){setStatus('入室できませんでした('+((e&&e.code)||'error')+')');$('joinbtn').disabled=false;rm=null}
 };
 function click(i){if(phase!=='play')return;const k=sel.indexOf(i);if(k>=0)sel.splice(k,1);else if(sel.length<2)sel.push(i);render()}
 function mk(t,cls,fn){
   const e=document.createElement('button');e.className='card '+(cls||'');
   if(t===null){e.textContent='?'}
   else{const d=TYPES[t];
-    e.innerHTML=`<div class="nm">${d.n}</div><div class="fx">${d.e.map((x,i)=>`<span class="${i===cnt.P[t]?'cur':''}">${fmt(x)}</span>`).join('')}</div><div class="op">CPU次:${fmt(nextEff('C',t))}</div>`}
+    e.innerHTML=`<div class="nm">${d.n}</div><div class="fx">${d.e.map((x,i)=>`<span class="${i===cnt.P[t]?'cur':''}">${fmt(x)}</span>`).join('')}</div><div class="op">${oppName}次:${fmt(nextEff('C',t))}</div>`}
   if(fn)e.onclick=fn;return e;
 }
 function drawRing(mover){
   const R=$('ring');R.innerHTML='';
   for(let i=0;i<N;i++){const g=i/N*2*Math.PI-Math.PI/2,c=document.createElement('div');c.className='cell';c.style.left=130+110*Math.cos(g)+'px';c.style.top=130+110*Math.sin(g)+'px';R.appendChild(c)}
   const place=(pos,col,txt,w)=>{const g=(((pos%N)+N)%N)/N*2*Math.PI-Math.PI/2,e=document.createElement('div');e.className='pc'+(mover&&mover===w?' hop':'');e.style.background=col;e.textContent=txt;e.style.left=130+110*Math.cos(g)+'px';e.style.top=130+110*Math.sin(g)+'px';R.appendChild(e)};
-  place(dispA,'var(--me)','YOU','P');place(GAP+dispB,'var(--cpu)','CPU','C');
+  place(dispA,'var(--me)','YOU','P');place(GAP+dispB,'var(--cpu)',oppName.slice(0,3),'C');
 }
 function updateInfo(){
   const toWin=GAP-(dispA-dispB),toLose=GAP-(dispB-dispA);
-  $('info').innerHTML=over?`<b>${over==='D'?'引き分け':over==='P'?'🎉 あなたの勝ち!':'💀 CPUの勝ち…'}</b>`:
-    `あなた→CPUまで あと<b>${toWin}</b>マス ／ CPU→あなたまで あと<b>${toLose}</b>マス<br>`+
-    (phase==='play'?'あなたの手番:カードを2枚選ぶ(1枚目=表、2枚目=裏)':phase==='choose'?'CPUの手番:どちらを自分に適用する?':'');
+  $('info').innerHTML=over?`<b>${over==='D'?'引き分け':over==='L'?'相手が退出しました':over==='P'?'🎉 あなたの勝ち!':'💀 '+oppName+'の勝ち…'}</b>`:
+    `あなた→${oppName}まで あと<b>${toWin}</b>マス ／ ${oppName}→あなたまで あと<b>${toLose}</b>マス<br>`+
+    (phase==='play'?'あなたの手番:カードを2枚選ぶ(1枚目=表、2枚目=裏)':phase==='choose'?oppName+'の手番:どちらを自分に適用する?':phase==='wait'?oppName+'がカードを選んでいます…':phase==='waitchoose'||phase==='waitreveal'?oppName+'の選択を待っています…':'');
 }
 function render(){
   drawRing();updateInfo();
@@ -177,19 +261,20 @@ function render(){
   const T=$('table');T.innerHTML='';
   if(tbl){
     const ce=phase==='choose',rv=tbl.revealed;
-    T.appendChild(mk(tbl.up,'up',ce?()=>resolve('P',true):null));
-    T.appendChild(rv?mk(tbl.down,'down'):mk(null,'down back',ce?()=>resolve('P',false):null));
+    T.appendChild(mk(tbl.up,'up',ce?()=>pick(true):null));
+    T.appendChild(rv||tbl.mine?mk(tbl.down,'down'):mk(null,'down back',ce?()=>pick(false):null));
     if(tbl.assigned)[...T.children].forEach((e,i)=>{e.dataset.tag=`${nm(tbl.own[i])} ${fmt(tbl.fx[i])}`;e.classList.add('own-'+tbl.own[i])});
-    $('tlabel').textContent=ce?'タップで「自分に適用」するカードを選ぶ(もう片方はCPUが取る)':'場';
+    $('tlabel').textContent=ce?'タップで「自分に適用」するカードを選ぶ(もう片方は'+oppName+'が取る)':'場';
   }else $('tlabel').textContent='場';
   const bt=$('btn');bt.disabled=false;
-  if(over)bt.textContent='もう一度遊ぶ';
+  if(over)bt.textContent=online?'ホームへ戻る':'もう一度遊ぶ';
   else if(phase==='play'){bt.textContent='この2枚を出す';bt.disabled=sel.length!==2}
   else if(phase==='anim'){bt.textContent='…';bt.disabled=true}
   else if(phase==='result')bt.textContent='次のターンへ';
   else{bt.textContent='選んでください';bt.disabled=true}
-  $('col').innerHTML='<tr><th>カード</th><th>あなた</th><th>CPU</th></tr>'+TYPES.map((d,t)=>`<tr><td>${d.n}</td><td>${cnt.P[t]}/3</td><td>${cnt.C[t]}/3</td></tr>`).join('');
+  if(online&&!over){if(phase==='result'){bt.textContent='次のターンへ自動で進みます';bt.disabled=true}if(phase==='wait'||phase==='waitchoose'||phase==='waitreveal')bt.textContent='相手を待っています…'}
+  $('col').innerHTML='<tr><th>カード</th><th>あなた</th><th>'+oppName+'</th></tr>'+TYPES.map((d,t)=>`<tr><td>${d.n}</td><td>${cnt.P[t]}/3</td><td>${cnt.C[t]}/3</td></tr>`).join('');
   $('log').innerHTML=log.map(s=>`<div>${s}</div>`).join('');
 }
-init();
+show('home');
 </script></body></html>
